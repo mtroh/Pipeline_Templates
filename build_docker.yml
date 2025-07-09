@@ -1,0 +1,56 @@
+stages:
+  - build
+  - push
+  - deploy
+
+variables:
+  # Nom de votre image Docker
+  IMAGE_NAME: your-docker-app
+  # Chemin vers votre Dockerfile
+  DOCKERFILE_PATH: ./
+  # Version de l'image (peut être le commit SHA ou une version sémantique)
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+
+build_docker_image:
+  stage: build
+  image: docker:latest # Image Docker avec le client Docker
+  services:
+    - docker:dind # Docker in Docker pour pouvoir construire des images
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE:$IMAGE_TAG -t $CI_REGISTRY_IMAGE:latest $DOCKERFILE_PATH
+  only:
+    - main
+
+push_docker_image:
+  stage: push
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push $CI_REGISTRY_IMAGE:$IMAGE_TAG
+    - docker push $CI_REGISTRY_IMAGE:latest
+  only:
+    - main
+  needs:
+    - build_docker_image
+
+deploy_docker_image:
+  stage: deploy
+  image: alpine/git # Ou une image avec l'outil de déploiement (docker-compose, kubectl, etc.)
+  script:
+    - echo "Déploiement de l'image Docker sur le serveur..."
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H $DEPLOY_SERVER_IP >> ~/.ssh/known_hosts
+    # Exemple de déploiement via SSH et docker-compose
+    - ssh $DEPLOY_USER@$DEPLOY_SERVER_IP "docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY && cd /path/to/your/app && docker-compose pull && docker-compose up -d --build"
+    # Ou pour un simple run Docker
+    # - ssh $DEPLOY_USER@$DEPLOY_SERVER_IP "docker pull $CI_REGISTRY_IMAGE:$IMAGE_TAG && docker stop $IMAGE_NAME || true && docker rm $IMAGE_NAME || true && docker run -d --name $IMAGE_NAME -p 80:80 $CI_REGISTRY_IMAGE:$IMAGE_TAG"
+  only:
+    - main
+  needs:
+    - push_docker_image

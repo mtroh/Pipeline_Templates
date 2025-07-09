@@ -1,0 +1,63 @@
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  # Si vous utilisez Maven
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  # Si vous utilisez Gradle
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+cache:
+  paths:
+    - .m2/repository # Pour Maven
+    - .gradle/caches # Pour Gradle
+    - .gradle/wrapper # Pour Gradle
+
+build_java_project:
+  stage: build
+  image: maven:3.8.7-openjdk-17 # Ou une image Gradle appropriée
+  script:
+    - echo "Construction du projet Java..."
+    # Pour Maven:
+    - mvn clean package -DskipTests
+    # Pour Gradle:
+    # - gradle clean build -x test
+  artifacts:
+    paths:
+      - target/*.jar # Pour Maven (adaptez si vous avez un WAR ou autre)
+      - build/libs/*.jar # Pour Gradle (adaptez)
+    expire_in: 1 day
+
+test_java_project:
+  stage: test
+  image: maven:3.8.7-openjdk-17 # Ou une image Gradle
+  script:
+    - echo "Exécution des tests unitaires..."
+    # Pour Maven:
+    - mvn test
+    # Pour Gradle:
+    # - gradle test
+  needs:
+    - build_java_project # S'assure que la construction est terminée
+
+deploy_java_project:
+  stage: deploy
+  image: alpine/git # Ou une image avec les outils de déploiement
+  script:
+    - echo "Déploiement du projet Java..."
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H $DEPLOY_SERVER_IP >> ~/.ssh/known_hosts
+    # Exemple de déploiement d'un JAR sur un serveur via SCP
+    - rsync -av --delete target/*.jar $DEPLOY_USER@$DEPLOY_SERVER_IP:/path/to/your/java/app/
+    # Redémarrage du service (exemple)
+    - ssh $DEPLOY_USER@$DEPLOY_SERVER_IP "sudo systemctl restart your-java-service"
+  only:
+    - main
+  needs:
+    - test_java_project

@@ -1,0 +1,38 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  # Ex: Chemin vers votre application Next.js si elle n'est pas à la racine
+  NEXT_APP_PATH: ./
+
+build_next_app:
+  stage: build
+  image: node:18 # Utilisez une image Node.js appropriée
+  script:
+    - cd $NEXT_APP_PATH
+    - npm install
+    - npm run build
+  artifacts:
+    paths:
+      - $NEXT_APP_PATH/.next # Incluez les fichiers construits pour le déploiement
+    expire_in: 1 day # Durée de conservation des artefacts
+
+deploy_next_app:
+  stage: deploy
+  image: alpine/git # Ou une image avec les outils de déploiement (rsync, scp, etc.)
+  script:
+    # Exemple de déploiement SCP (à adapter)
+    - echo "Déploiement de l'application Next.js..."
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H $DEPLOY_SERVER_IP >> ~/.ssh/known_hosts
+    - rsync -av --delete $NEXT_APP_PATH/.next/static/ $DEPLOY_USER@$DEPLOY_SERVER_IP:/var/www/your-nextjs-app/static/
+    - rsync -av --delete $NEXT_APP_PATH/.next/standalone/ $DEPLOY_USER@$DEPLOY_SERVER_IP:/var/www/your-nextjs-app/
+  only:
+    - main # Déployer uniquement sur la branche main
+  needs:
+    - build_next_app # Assurez-vous que la construction est terminée
